@@ -1,4 +1,4 @@
-# Azure Logic Apps XSLT Transformation Playground
+# Azure Logic Apps XSLT Transformation
 
 This repository is a learning project built while exploring **Azure Logic Apps** and different ways to transform data between JSON and XML formats.
 
