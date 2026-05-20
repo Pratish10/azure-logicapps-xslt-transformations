@@ -1,0 +1,170 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "HTTP_Trigger": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST"
+                }
+            }
+        },
+        "actions": {
+            "Initialize_Variables": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "results",
+                            "type": "array",
+                            "value": []
+                        },
+                        {
+                            "name": "errors",
+                            "type": "array",
+                            "value": []
+                        },
+                        {
+                            "name": "correlationId",
+                            "type": "string",
+                            "value": "@{guid()}"
+                        }
+                    ]
+                },
+                "runAfter": {}
+            },
+            "Validate_Input": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "not": {
+                                "equals": [
+                                    "@triggerBody()",
+                                    ""
+                                ]
+                            }
+                        },
+                        {
+                            "contains": [
+                                "@string(triggerBody())",
+                                "orders"
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "Build_Batch_Payload": {
+                        "type": "Compose",
+                        "inputs": "@triggerBody()"
+                    },
+                    "Transform_JSON_to_JSON": {
+                        "type": "Liquid",
+                        "kind": "JsonToJson",
+                        "inputs": {
+                            "content": "@outputs('Build_Batch_Payload')",
+                            "map": {
+                                "source": "LogicApp",
+                                "name": "json-to-json-enterprise.liquid"
+                            }
+                        },
+                        "runAfter": {
+                            "Build_Batch_Payload": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Append_Batch_Result": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                            "name": "results",
+                            "value": {
+                                "status": "success",
+                                "data": "@body('Transform_JSON_to_JSON')",
+                                "processedAt": "@utcNow()"
+                            }
+                        },
+                        "runAfter": {
+                            "Transform_JSON_to_JSON": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Append_Batch_Error": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                            "name": "errors",
+                            "value": {
+                                "status": "failed",
+                                "error": "@{actions('Transform_JSON_to_JSON')['error']}",
+                                "failedAt": "@utcNow()"
+                            }
+                        },
+                        "runAfter": {
+                            "Transform_JSON_to_JSON": [
+                                "Failed",
+                                "TimedOut"
+                            ]
+                        }
+                    },
+                    "Build_Final_Response": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                            "statusCode": 200,
+                            "headers": {
+                                "Content-Type": "application/json"
+                            },
+                            "body": {
+                                "correlationId": "@variables('correlationId')",
+                                "status": "@if(equals(length(variables('errors')), 0), 'success', 'partial')",
+                                "successCount": "@length(variables('results'))",
+                                "errorCount": "@length(variables('errors'))",
+                                "results": "@variables('results')",
+                                "errors": "@variables('errors')",
+                                "completedAt": "@utcNow()"
+                            }
+                        },
+                        "runAfter": {
+                            "Append_Batch_Result": [
+                                "Succeeded"
+                            ],
+                            "Append_Batch_Error": [
+                                "Succeeded",
+                                "Skipped"
+                            ]
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Bad_Request_Response": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 400,
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "error": "Invalid input",
+                                    "message": "Request body must contain orders array",
+                                    "correlationId": "@variables('correlationId')"
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Initialize_Variables": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {}
+    },
+    "kind": "Stateful"
+}

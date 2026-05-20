@@ -1,0 +1,247 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "actions": {
+            "Initialize_BatchId": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "batchId",
+                            "type": "string",
+                            "value": "@{guid()}"
+                        }
+                    ]
+                },
+                "runAfter": {}
+            },
+            "Initialize_Results": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "results",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_BatchId": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Initialize_Errors": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "errors",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_Results": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Parse_Batch_Input": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@triggerBody()",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "batchId": {
+                                "type": "string"
+                            },
+                            "chunks": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "chunkId": {
+                                            "type": "string"
+                                        },
+                                        "xmlPayload": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Initialize_Errors": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Process_Chunks_Parallel": {
+                "type": "Foreach",
+                "foreach": "@body('Parse_Batch_Input')?['chunks']",
+                "actions": {
+                    "Parse_Transformed_JSON": {
+                        "type": "ParseJson",
+                        "inputs": {
+                            "content": "@json(string(body('Transform_XML')))",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "batchId": {
+                                        "type": "string"
+                                    },
+                                    "orders": {
+                                        "type": "array"
+                                    },
+                                    "summary": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Transform_XML": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Append_Success_Result": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                            "name": "results",
+                            "value": {
+                                "chunkId": "@item()?['chunkId']",
+                                "status": "success",
+                                "data": "@body('Parse_Transformed_JSON')",
+                                "processedAt": "@utcNow()"
+                            }
+                        },
+                        "runAfter": {
+                            "Parse_Transformed_JSON": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Handle_Transform_Error": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                            "name": "errors",
+                            "value": {
+                                "chunkId": "@item()?['chunkId']",
+                                "status": "failed",
+                                "error": "@body('Transform_XML')",
+                                "failedAt": "@utcNow()"
+                            }
+                        },
+                        "runAfter": {
+                            "Transform_XML": [
+                                "Failed",
+                                "TimedOut",
+                                "Skipped"
+                            ]
+                        }
+                    },
+                    "Transform_XML": {
+                        "type": "Xslt",
+                        "inputs": {
+                            "content": "@item()?['xmlPayload']",
+                            "map": {
+                                "source": "LogicApp",
+                                "name": "xml-to-json-enterprise.xslt"
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Parse_Batch_Input": [
+                        "Succeeded"
+                    ]
+                },
+                "runtimeConfiguration": {
+                    "concurrency": {
+                        "repetitions": 50
+                    }
+                }
+            },
+            "Check_Has_Errors": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "greater": [
+                                "@length(variables('errors'))",
+                                0
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "Partial_Success_Response": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                            "statusCode": 207,
+                            "headers": {
+                                "Content-Type": "application/json"
+                            },
+                            "body": {
+                                "batchId": "@variables('batchId')",
+                                "status": "partial",
+                                "successCount": "@length(variables('results'))",
+                                "errorCount": "@length(variables('errors'))",
+                                "results": "@variables('results')",
+                                "errors": "@variables('errors')",
+                                "completedAt": "@utcNow()"
+                            }
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Full_Success_Response": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 200,
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "batchId": "@variables('batchId')",
+                                    "status": "success",
+                                    "totalProcessed": "@length(variables('results'))",
+                                    "results": "@variables('results')",
+                                    "completedAt": "@utcNow()"
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Process_Chunks_Parallel": [
+                        "Succeeded",
+                        "Failed"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "triggers": {
+            "HTTP_Batch_Trigger": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST"
+                }
+            }
+        }
+    },
+    "kind": "Stateful"
+}

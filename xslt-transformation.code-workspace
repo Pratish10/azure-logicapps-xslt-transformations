@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "name": "xslt-transformation",
+      "path": "./xslt-transformation",
+    },
+  ],
+  "settings": {
+    "terminal.integrated.env.windows": {
+      "PATH": "C:\\Users\\Dell\\.azurelogicapps\\dependencies\\DotNetSDK;${env:PATH}",
+    },
+    "omnisharp.dotNetCliPaths": [
+      "C:\\Users\\Dell\\.azurelogicapps\\dependencies\\DotNetSDK",
+    ],
+    "azurite.location": "C:\\Users\\Dell\\.azurelogicapps\\.azurite",
+  },
+}

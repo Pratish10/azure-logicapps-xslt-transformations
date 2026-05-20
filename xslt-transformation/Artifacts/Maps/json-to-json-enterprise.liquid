@@ -1,0 +1,56 @@
+{
+  "correlationId": "{{content.meta.correlationId}}",
+  "sourceSystem": "{{content.meta.source}}",
+  "targetSystem": "ERP",
+
+  "batches": [
+    {% for batch in content.batches %}
+    {
+      "batchIndex": {{batch.batchIndex}},
+
+      "orders": [
+        {% for order in batch.orders %}
+        {
+          "orderId": "{{order.orderId}}",
+          "customerId": "{{order.customerId}}",
+          "region": "{{order.region}}",
+          "currency": "{% if order.currency == '' %}EUR{% else %}{{order.currency}}{% endif %}",
+          "orderDate": "{{order.orderDate}}",
+
+          "lines": [
+            {% for line in order.lines %}
+
+            {% assign productName = "UNKNOWN" %}
+            {% assign productCategory = "UNKNOWN" %}
+
+            {% for product in content.productLookup %}
+              {% if product.code == line.productId %}
+                {% assign productName = product.name %}
+                {% assign productCategory = product.category %}
+              {% endif %}
+            {% endfor %}
+
+            {
+              "productId": "{{line.productId}}",
+              "productName": "{{productName}}",
+              "category": "{{productCategory}}",
+              "quantity": {{line.qty}},
+              "unitPrice": {{line.unitPrice}},
+              "lineTotal": {{ line.qty | times: line.unitPrice }},
+
+              "discountTier":
+              "{% if line.qty >= 1000 %}PLATINUM{% elsif line.qty >= 500 %}GOLD{% elsif line.qty >= 100 %}SILVER{% else %}STANDARD{% endif %}"
+
+            }{% unless forloop.last %},{% endunless %}
+
+            {% endfor %}
+          ]
+
+        }{% unless forloop.last %},{% endunless %}
+        {% endfor %}
+      ]
+
+    }{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ]
+}
